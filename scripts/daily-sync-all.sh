@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
-# daily-sync-all.sh — host-side daily sync for all 3 repos
-# Runs as launchd job (daily at 06:00).  Safe to run manually at any time.
-# Continues on per-repo failure; exits non-zero if any repo failed.
+# daily-sync-all.sh — fallback manuel pour synchroniser les 3 repos depuis l'hôte.
+# La sync automatique (launchd) passe par daily-sync-container.sh via docker exec.
+# Utile pour inclure drobdi (infra) ou en cas d'indisponibilité du container.
 set -uo pipefail
 
 DROBDI_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 MEMORY_REPO="$DROBDI_ROOT/data/openclaw"
 DROBSIDIAN_REPO="$MEMORY_REPO/workspace/drobsidian"
-KEY="$MEMORY_REPO/.ssh/drobdi_memory_deploy"
+MEMORY_KEY="$MEMORY_REPO/.ssh/drobdi_memory_deploy"
+DROBSIDIAN_KEY="$MEMORY_REPO/.ssh/drobsidian_deploy"
 KNOWN="$MEMORY_REPO/.ssh/known_hosts"
 TODAY=$(date '+%Y-%m-%d')
 ERRORS=0
@@ -15,13 +16,9 @@ ERRORS=0
 log() { echo "[daily-sync] $*"; }
 err() { echo "[daily-sync] ERROR: $*" >&2; }
 
-# ── helper: sync a repo that lives entirely on the host ──────────────────────
 sync_host_repo() (
   set -euo pipefail
-  local name="$1"
-  local dir="$2"
-  shift 2
-  # remaining args are passed to GIT_SSH_COMMAND if needed
+  local name="$1" dir="$2"
   local ssh_cmd="${SSH_CMD:-}"
 
   log "[$name] pulling..."
@@ -48,42 +45,30 @@ sync_host_repo() (
   log "[$name] pushed"
 )
 
-# ── 1. drobdi-memory — runs inside the container ─────────────────────────────
-log "[drobdi-memory] syncing via docker exec..."
-if docker exec openclaw-gateway bash /home/node/.openclaw/scripts/git-sync.sh; then
-  log "[drobdi-memory] done"
-else
-  err "[drobdi-memory] sync failed"
-  ERRORS=$((ERRORS + 1))
-fi
+# ── 1. drobdi-memory — deploy key (host paths override core.sshCommand) ──────
+MEMORY_SSH="ssh -i $MEMORY_KEY -o UserKnownHostsFile=$KNOWN -o StrictHostKeyChecking=yes -F /dev/null"
+if SSH_CMD="$MEMORY_SSH" sync_host_repo "drobdi-memory" "$MEMORY_REPO"; then :
+else err "[drobdi-memory] sync failed"; ERRORS=$((ERRORS + 1)); fi
 
-# ── 2. drobsidian — host git, default SSH (uses ~/.ssh/config) ───────────────
+# ── 2. drobsidian — deploy key (host paths override core.sshCommand) ─────────
+DROBSIDIAN_SSH="ssh -i $DROBSIDIAN_KEY -o UserKnownHostsFile=$KNOWN -o StrictHostKeyChecking=yes -F /dev/null"
 if [[ -d "$DROBSIDIAN_REPO/.git" ]]; then
-  if sync_host_repo "drobsidian" "$DROBSIDIAN_REPO"; then
-    : # logged inside
-  else
-    err "[drobsidian] sync failed"
-    ERRORS=$((ERRORS + 1))
-  fi
+  if SSH_CMD="$DROBSIDIAN_SSH" sync_host_repo "drobsidian" "$DROBSIDIAN_REPO"; then :
+  else err "[drobsidian] sync failed"; ERRORS=$((ERRORS + 1)); fi
 else
-  err "[drobsidian] repo not found at $DROBSIDIAN_REPO — skipping"
+  err "[drobsidian] not found at $DROBSIDIAN_REPO — skipping"
   ERRORS=$((ERRORS + 1))
 fi
 
-# ── 3. drobdi (infra) — host git, default SSH ────────────────────────────────
+# ── 3. drobdi (infra) — SSH de compte (changes intentionnels seulement) ──────
 if [[ -d "$DROBDI_ROOT/.git" ]]; then
-  if sync_host_repo "drobdi" "$DROBDI_ROOT"; then
-    : # logged inside
-  else
-    err "[drobdi] sync failed"
-    ERRORS=$((ERRORS + 1))
-  fi
+  if sync_host_repo "drobdi" "$DROBDI_ROOT"; then :
+  else err "[drobdi] sync failed"; ERRORS=$((ERRORS + 1)); fi
 else
-  err "[drobdi] repo not found at $DROBDI_ROOT — skipping"
+  err "[drobdi] not found at $DROBDI_ROOT — skipping"
   ERRORS=$((ERRORS + 1))
 fi
 
-# ── result ────────────────────────────────────────────────────────────────────
 if [[ $ERRORS -eq 0 ]]; then
   log "all repos synced successfully"
 else

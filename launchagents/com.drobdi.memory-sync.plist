@@ -5,14 +5,14 @@
     <key>Label</key>
     <string>com.drobdi.memory-sync</string>
 
-    <!-- Syncs drobdi-memory every hour via docker exec (no FDA required). -->
+    <!-- Syncs drobdi-memory + drobsidian every hour via docker exec (no FDA required). -->
     <key>ProgramArguments</key>
     <array>
         <string>/usr/local/bin/docker</string>
         <string>exec</string>
         <string>openclaw-gateway</string>
         <string>bash</string>
-        <string>/home/node/.openclaw/scripts/git-sync.sh</string>
+        <string>/home/node/.openclaw/scripts/daily-sync-container.sh</string>
     </array>
 
     <key>StartInterval</key>

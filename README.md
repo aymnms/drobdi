@@ -56,37 +56,43 @@ Le `.gitignore` de `drobdi` exclut `data/openclaw/` entièrement — les deux au
 
 ## Sync mémoire → GitHub
 
-La sync tourne de deux façons complémentaires :
-
 ### Auto — launchd macOS
+
+Un seul agent, toutes les heures, via `docker exec` — **aucun Full Disk Access requis**.
 
 | Agent | Déclencheur | Scope | Log |
 |-------|-------------|-------|-----|
-| `com.drobdi.memory-sync` | toutes les heures | drobdi-memory uniquement | `/tmp/drobdi-memory-sync.log` |
-| `com.drobdi.daily-sync` | tous les jours à minuit | 3 repos (drobdi-memory + drobsidian + drobdi) | `/tmp/drobdi-daily-sync.log` |
+| `com.drobdi.memory-sync` | toutes les heures | drobdi-memory + drobsidian | `/tmp/drobdi-memory-sync.log` |
 
 ```bash
-launchctl list | grep drobdi   # vérifier l'état des deux agents
+launchctl list | grep drobdi         # vérifier l'état
+cat /tmp/drobdi-memory-sync.log      # voir le dernier log
 ```
 
 ### Manuelle — alias zsh
 
 ```bash
-drobdi   # sync les 3 repos + tail des logs en direct
+drobdi   # sync les 3 repos (drobdi-memory + drobsidian + drobdi infra)
 ```
 
 L'alias `drobdi` est défini dans `~/.zshrc` et équivaut à :
 ```bash
-launchctl start com.drobdi.daily-sync && tail -f /tmp/drobdi-daily-sync.log
+bash ~/Documents/drobdi/scripts/daily-sync-all.sh
 ```
 
 ### Depuis le container (agent autonome)
-Le container a une deploy key SSH (`data/openclaw/.ssh/drobdi_memory_deploy`)
-configurée en write access sur `aymnms/drobdi-memory`. L'agent peut pousser
-lui-même via :
+
 ```bash
-docker exec openclaw-gateway bash /home/node/.openclaw/scripts/git-sync.sh
+docker exec openclaw-gateway bash /home/node/.openclaw/scripts/git-sync.sh          # drobdi-memory seul
+docker exec openclaw-gateway bash /home/node/.openclaw/scripts/daily-sync-container.sh  # drobdi-memory + drobsidian
 ```
+
+### Deploy keys SSH
+
+| Repo | Clé privée | Scope GitHub |
+|------|-----------|--------------|
+| drobdi-memory | `.ssh/drobdi_memory_deploy` | write sur `aymnms/drobdi-memory` |
+| drobsidian | `.ssh/drobsidian_deploy` | write sur `aymnms/drobsidian` |
 
 ---
 
