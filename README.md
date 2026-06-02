@@ -58,24 +58,26 @@ Le `.gitignore` de `drobdi` exclut `data/openclaw/` entièrement — les deux au
 
 La sync tourne de deux façons complémentaires :
 
-### Auto (toutes les heures) — launchd macOS
-Un LaunchAgent pousse depuis l'hôte toutes les heures :
-```
-~/Library/LaunchAgents/com.drobdi.memory-sync.plist
-```
-Log : `/tmp/drobdi-memory-sync.log`
+### Auto — launchd macOS
 
-Commandes utiles :
+| Agent | Déclencheur | Scope | Log |
+|-------|-------------|-------|-----|
+| `com.drobdi.memory-sync` | toutes les heures | drobdi-memory uniquement | `/tmp/drobdi-memory-sync.log` |
+| `com.drobdi.daily-sync` | tous les jours à minuit | 3 repos (drobdi-memory + drobsidian + drobdi) | `/tmp/drobdi-daily-sync.log` |
+
 ```bash
-launchctl start com.drobdi.memory-sync        # déclencher manuellement
-launchctl list | grep drobdi                  # vérifier l'état
-cat /tmp/drobdi-memory-sync.log              # voir le dernier log
+launchctl list | grep drobdi   # vérifier l'état des deux agents
 ```
 
-### Manuelle (host-side fallback)
+### Manuelle — alias zsh
+
 ```bash
-./scripts/sync-memory.sh                      # message auto horodaté
-./scripts/sync-memory.sh "après le sprint"   # message custom
+drobdi   # sync les 3 repos + tail des logs en direct
+```
+
+L'alias `drobdi` est défini dans `~/.zshrc` et équivaut à :
+```bash
+launchctl start com.drobdi.daily-sync && tail -f /tmp/drobdi-daily-sync.log
 ```
 
 ### Depuis le container (agent autonome)
