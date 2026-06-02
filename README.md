@@ -1,227 +1,193 @@
-# drobdi — minimal OpenClaw
+# drobdi — infra OpenClaw (arm64 / M1)
 
-A deliberately small OpenClaw setup: one gateway container, the official
-multi-arch image, and your AI memory versioned in this private repo.
+Un gateway OpenClaw minimaliste : un seul container, l'image officielle multi-arch,
+et la mémoire de l'agent versionnée dans des dépôts GitHub privés séparés.
 
-Goal: redeploy on any machine with `git clone` → restore secrets → `docker compose up`.
-
----
-
-## Architecture note (amd64 → arm64)
-
-Your previous instance ran under **WSL/Windows (amd64)**. The target is a
-**MacBook Pro M1 (arm64)**. This is fine: your memory is Markdown + SQLite + JSON,
-which are architecture-independent. Only the container image differs, and
-`ghcr.io/openclaw/openclaw` is multi-arch — Docker pulls the arm64 variant
-automatically on the Mac.
+**Objectif :** redéployer sur n'importe quelle machine en `git clone` → restaurer les secrets → `docker compose up`.
 
 ---
 
-## Repo layout
+## Architecture — 3 dépôts distincts
 
 ```
-drobdi/
-├── docker-compose.yml        # gateway + opt-in CLI sidecar
-├── .env.example              # copy to .env, fill in
-├── .env                      # gitignored — your real secrets
-├── .gitignore                # deny-by-default; secrets can't leak
-├── README.md
-├── scripts/
-│   └── sync-memory.sh        # host-side git sync
+drobdi/                          ← CE REPO (infra seule)
+├── docker-compose.yml
+├── .env.example / .env (ignoré)
+├── scripts/sync-memory.sh       ← fallback host-side sync
 └── data/
-    └── openclaw/             # bind-mounted to /home/node/.openclaw
-        ├── workspace/        # VERSIONED — curated memory + persona files
-        ├── memory/main.sqlite# VERSIONED — Active Memory DB
-        ├── agents/main/
-        │   ├── sessions/     # VERSIONED — conversation history
-        │   └── agent/auth-profiles.json   # IGNORED — provider secrets
-        ├── credentials/      # IGNORED — all secrets/tokens
-        └── (logs, media, telegram, gogcli, ...)  # IGNORED — runtime state
+    └── openclaw/                ← monté → /home/node/.openclaw dans le container
+        │   (ignoré entièrement par ce repo)
+        ├── .git/                ← REPO drobdi-memory (github: aymnms/drobdi-memory)
+        ├── workspace/           ← versionné dans drobdi-memory
+        │   ├── MEMORY.md, SOUL.md, USER.md, AGENTS.md, …
+        │   ├── memory/*.md
+        │   ├── skills/
+        │   ├── job-search/
+        │   └── drobsidian/      ← REPO drobsidian (github: aymnms/drobsidian)
+        │       └── .git/           vault Obsidian job search
+        ├── .ssh/                ← deploy key (ignorée par tous les repos)
+        ├── credentials/         ← ignoré — secrets provider
+        ├── agents/              ← ignoré — sessions de conversation
+        ├── memory/main.sqlite   ← ignoré — base Active Memory
+        └── …                   ← ignoré — état runtime
 ```
 
-### What is versioned vs ignored
-
-Three buckets:
-
-1. **Versioned (the "brain")** — pushed to GitHub, diffable:
-   `workspace/` (MEMORY.md, USER.md, AGENTS.md, SOUL.md, IDENTITY.md,
-   BOOTSTRAP.md, HEARTBEAT.md, TOOLS.md, `memory/*.md`, `skills/`),
-   `memory/main.sqlite`, and `agents/main/sessions/` (your conversation history).
-
-2. **Never committed (secrets)** — stay local only, transferred out-of-band:
-   `credentials/`, `**/auth-profiles.json`, `gogcli/` keyring, `.env`.
-
-3. **Ignored runtime state** — recreated on each machine: `logs/`, `media/`,
-   `telegram/` (channel session), `canvas/`, `flows/`, `tasks/`, etc.
-
-> The `.gitignore` is deny-by-default: anything under `data/openclaw/` is ignored
-> unless explicitly re-included, so `git add -A` can never stage a credential.
-> Conversation history is plaintext personal data — keep this repo **private**.
+| Repo | Remote | Contenu |
+|------|--------|---------|
+| `drobdi` | `aymnms/drobdi` | Infra : docker-compose, scripts, .env.example |
+| `drobdi-memory` | `aymnms/drobdi-memory` | Workspace lean : Markdown brain, skills, notes |
+| `drobsidian` | `aymnms/drobsidian` | Vault Obsidian job search |
 
 ---
 
-## A. One-time migration from the old (WSL) machine
+## Ce qui est versionné vs ignoré
 
-1. **Stop the old gateway** so files aren't changing mid-copy. In the old
-   project dir: `docker compose down`.
+**`drobdi-memory` (lean — aucun binaire, aucun secret) :**
+- Suivi : `workspace/*.md`, `workspace/memory/*.md`, `workspace/skills/`, `workspace/job-search/`
+- Exclu : `memory/main.sqlite`, `agents/` (sessions), `credentials/`, `.ssh/`, `drobsidian/`, `state/`, venvs Python
 
-2. **Archive the full state dir** (this carries your memory *and* secrets/auth
-   so you don't have to re-onboard). On the old box, from
-   `C:\Users\aymnms\Documents\drobdi\`:
-   ```bash
-   tar -czf openclaw-state-full.tgz -C data openclaw
-   ```
-   Encrypt it before moving it (it contains API keys, OAuth tokens, the Telegram
-   token). Transfer to the Mac via a secure channel (USB / AirDrop / scp), then
-   **delete the archive** once restored.
+**`drobsidian` :**
+- Suivi : tout le vault Obsidian (candidatures, entreprises, offres, projets, tâches, sprints)
+- Exclu : `.obsidian/workspace*`, cache, plugins data, `.trash/`
 
-3. **Trim the fat.** The old setup carried things this minimal stack drops:
-   Open-WebUI (~6.7 GB, redundant with the Control UI) and a custom 5.9 GB
-   gateway build. You don't migrate those — only the state dir above.
+Le `.gitignore` de `drobdi` exclut `data/openclaw/` entièrement — les deux autres repos vivent à l'intérieur et gèrent leur propre tracking.
 
 ---
 
-## B. First boot on the Mac
+## Sync mémoire → GitHub
 
-1. Install **Docker Desktop for Mac (Apple Silicon)**.
+La sync tourne de deux façons complémentaires :
 
-2. Put this repo in place and restore state:
-   ```bash
-   git clone git@github.com:<you>/drobdi.git
-   cd drobdi
-   mkdir -p data
-   tar -xzf /path/to/openclaw-state-full.tgz -C data   # restores data/openclaw
-   ```
-   (On the very first migration the repo is empty of memory; the restore above
-   provides it. On later machines, `git clone` already brings the memory.)
+### Auto (toutes les heures) — launchd macOS
+Un LaunchAgent pousse depuis l'hôte toutes les heures :
+```
+~/Library/LaunchAgents/com.drobdi.memory-sync.plist
+```
+Log : `/tmp/drobdi-memory-sync.log`
 
-3. **Remove the old nested git repo** in the workspace (it had no remote; the
-   project repo tracks these files directly now):
-   ```bash
-   rm -rf data/openclaw/workspace/.git
-   ```
+Commandes utiles :
+```bash
+launchctl start com.drobdi.memory-sync        # déclencher manuellement
+launchctl list | grep drobdi                  # vérifier l'état
+cat /tmp/drobdi-memory-sync.log              # voir le dernier log
+```
 
-4. Configure env:
-   ```bash
-   cp .env.example .env
-   # set OPENCLAW_GATEWAY_TOKEN — generate one with: openssl rand -hex 32
-   ```
+### Manuelle (host-side fallback)
+```bash
+./scripts/sync-memory.sh                      # message auto horodaté
+./scripts/sync-memory.sh "après le sprint"   # message custom
+```
 
-5. (Optional) Confirm the arm64 image exists:
-   ```bash
-   docker manifest inspect ghcr.io/openclaw/openclaw:2026.4.15 | grep -i arm64
-   ```
-
-6. Start it:
-   ```bash
-   docker compose up -d
-   docker compose logs -f openclaw-gateway   # expect: gateway running on 18789
-   ```
-   If you hit `EACCES` on `/home/node/.openclaw`, fix ownership to uid 1000:
-   `sudo chown -R 1000:1000 data/openclaw` (usually unnecessary on Docker Desktop).
-
-7. Apply any config migrations and verify:
-   ```bash
-   docker compose run --rm openclaw-cli doctor
-   ```
-
-8. Open `http://127.0.0.1:18789`, paste your `OPENCLAW_GATEWAY_TOKEN`.
+### Depuis le container (agent autonome)
+Le container a une deploy key SSH (`data/openclaw/.ssh/drobdi_memory_deploy`)
+configurée en write access sur `aymnms/drobdi-memory`. L'agent peut pousser
+lui-même via :
+```bash
+docker exec openclaw-gateway bash /home/node/.openclaw/scripts/git-sync.sh
+```
 
 ---
 
-## C. Telegram
-
-You already have a bot — **don't paste its token anywhere public.**
-
-- If you restored the full state archive, the Telegram channel is already
-  configured (token in `data/openclaw/credentials/`, allowlist preserved).
-  Verify: `docker compose run --rm openclaw-cli channels list`.
-
-- If you're starting clean (no restored secrets), add it via the sidecar — the
-  token is written to `data/openclaw/credentials/` (gitignored):
-  ```bash
-  docker compose run --rm openclaw-cli channels add --channel telegram --token "<bot-token>"
-  ```
-
-- Lock the bot to you only: find your numeric Telegram user ID by messaging the
-  bot and watching `docker compose logs -f openclaw-gateway` for `from.id`, then
-  set the DM policy to allowlist:
-  ```bash
-  docker compose run --rm openclaw-cli configure --section channels
-  # dmPolicy = allowlist ; add your numeric id to allowFrom
-  ```
-
----
-
-## D. Memory → GitHub sync strategy
-
-**Recommended: host-side git, scheduled.** Because this repo *is* the bind-mount
-directory, your Mac can commit and push the live memory directly — no SSH keys
-inside the container, no git hooks, clean trust boundary.
-
-- **Manual** (full control):
-  ```bash
-  ./scripts/sync-memory.sh "after today's sprint"
-  ```
-
-- **Scheduled** (keeps GitHub current automatically). Example macOS launchd agent
-  at `~/Library/LaunchAgents/com.drobdi.memory-sync.plist` running every 6h:
-  ```xml
-  <?xml version="1.0" encoding="UTF-8"?>
-  <plist version="1.0"><dict>
-    <key>Label</key><string>com.drobdi.memory-sync</string>
-    <key>ProgramArguments</key>
-    <array>
-      <string>/bin/bash</string>
-      <string>-lc</string>
-      <string>cd /Users/&lt;you&gt;/drobdi &amp;&amp; ./scripts/sync-memory.sh</string>
-    </array>
-    <key>StartInterval</key><integer>21600</integer>
-    <key>RunAtLoad</key><true/>
-  </dict></plist>
-  ```
-  Load it: `launchctl load ~/Library/LaunchAgents/com.drobdi.memory-sync.plist`
-
-**Not recommended:** having the agent (inside the container) push to GitHub, or a
-git hook. Both add complexity and expose credentials to the container, and the
-agent could commit things you didn't intend. Keep pushes on the host.
-
-> Sessions are written live, so a scheduled commit is a best-effort snapshot.
-> For a perfectly clean capture, `docker compose stop` before syncing.
-
----
-
-## E. Redeploy on a brand-new machine
+## Premier déploiement (nouvelle machine)
 
 ```bash
-git clone git@github.com:<you>/drobdi.git
+# 1. Cloner l'infra
+git clone git@github.com:aymnms/drobdi.git
 cd drobdi
-cp .env.example .env          # set OPENCLAW_GATEWAY_TOKEN
 
-# Restore secrets — choose ONE:
-#  (a) extract your encrypted secrets archive into ./data/openclaw   (no re-auth)
-#  (b) re-onboard:
-#        docker compose run --rm openclaw-cli onboard
-#        docker compose run --rm openclaw-cli channels add --channel telegram --token "<token>"
+# 2. Configurer l'env
+cp .env.example .env
+# Générer un token fort : openssl rand -hex 32
+# Renseigner OPENCLAW_GATEWAY_TOKEN dans .env
 
+# 3. Restaurer la mémoire (choisir UNE option)
+
+# Option A — depuis les repos git (sans secrets)
+git clone git@github.com:aymnms/drobdi-memory.git data/openclaw
+git clone git@github.com:aymnms/drobsidian.git data/openclaw/workspace/drobsidian
+# Puis restaurer les secrets hors-git (credentials/, .ssh/, auth-profiles.json)
+# via archive chiffrée ou re-onboarding
+
+# Option B — depuis une archive chiffrée complète (avec secrets)
+tar -xzf /path/to/openclaw-state-full.tgz -C data
+# L'archive inclut tout data/openclaw/, secrets compris
+
+# 4. Démarrer
 docker compose up -d
-docker compose run --rm openclaw-cli doctor
+docker compose logs -f openclaw-gateway   # attendre "gateway running on 18789"
+
+# 5. Vérifier
+docker compose exec openclaw-gateway openclaw doctor
+open http://127.0.0.1:18789
 ```
 
-You're back in a few minutes: memory + history from git, secrets restored or
-re-authed. This is the portability payoff.
+### Recréer la deploy key SSH sur une nouvelle machine
+```bash
+ssh-keygen -t ed25519 -f data/openclaw/.ssh/drobdi_memory_deploy \
+  -C "drobdi-agent@openclaw" -N ""
+chmod 700 data/openclaw/.ssh
+chmod 600 data/openclaw/.ssh/drobdi_memory_deploy
+ssh-keyscan -t ed25519 github.com > data/openclaw/.ssh/known_hosts
+# Ajouter la clé publique sur GitHub :
+# aymnms/drobdi-memory → Settings → Deploy keys → Add (Allow write access)
+cat data/openclaw/.ssh/drobdi_memory_deploy.pub
+```
+
+### Réinstaller le LaunchAgent
+```bash
+launchctl load ~/Library/LaunchAgents/com.drobdi.memory-sync.plist
+# Si absent, le recréer — voir scripts/sync-memory.sh pour le template
+```
 
 ---
 
-## Appendix — decisions & gotchas
+## Telegram
 
-**Open-WebUI dropped.** It was ~6.7 GB and redundant with OpenClaw's own Control
-UI (`:18789`), and both containers were OOM-killed (exit 137) together. Re-add it
-only if you specifically use it as a separate local-model chat UI.
+Le bot est configuré dans `data/openclaw/credentials/` (ignoré de git).
 
-**The `jx76-gog` skill needs Go.** Your old gateway was a custom build (node:24-
-bookworm) with Go baked in. The official slim image has no Go, so that skill won't
-run as-is. If you need it, swap `image:` for a tiny build. Create `Dockerfile`:
+- **Avec archive complète restaurée** : rien à faire, le token est déjà là.
+- **Re-onboarding depuis zéro** :
+  ```bash
+  docker compose exec openclaw-gateway openclaw channels add \
+    --channel telegram --token "<bot-token>"
+  ```
+- **Verrouiller au seul user autorisé** (ton Telegram numeric ID) :
+  ```bash
+  # Trouver ton ID : envoie un message au bot, surveille les logs :
+  docker compose logs -f openclaw-gateway | grep "from.id"
+  # Puis configurer le dmPolicy allowlist dans l'UI Control (/:18789)
+  ```
+
+---
+
+## Mise à jour d'OpenClaw
+
+```bash
+# Bumper le tag dans docker-compose.yml, puis :
+docker compose pull
+docker compose up -d
+docker compose exec openclaw-gateway openclaw doctor
+```
+
+---
+
+## Annexe — décisions et gotchas
+
+**3 repos séparés au lieu d'un seul.** Le dépôt infra (`drobdi`) était à la racine
+et incluait tout via `.gitignore` re-includes. Cela a causé une fuite d'un token
+Anthropic OAuth dans les sessions de conversation (juin 2026). La refonte en 3 repos
+isole clairement infra / mémoire / vault et supprime les sessions du tracking git.
+
+**Sessions exclues de git.** Les fichiers `.jsonl` de session contiennent l'historique
+brut des conversations, qui peut inclure des secrets envoyés comme messages.
+Ils ne seront jamais commités.
+
+**Deploy key à scope réduit.** La clé SSH du container n'a accès qu'au repo
+`drobdi-memory` (deploy key, pas une clé de compte). Elle est stockée dans le
+volume monté mais exclue de tous les repos.
+
+**Le skill `jx76-gog` nécessite Go.** L'image officielle slim n'a pas Go. Si besoin,
+créer un `Dockerfile` :
 ```dockerfile
 FROM ghcr.io/openclaw/openclaw:2026.4.15
 USER root
@@ -229,22 +195,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends golang-go \
     && rm -rf /var/lib/apt/lists/*
 USER node
 ```
-then in `docker-compose.yml` replace the gateway's `image:` line with `build: .`
-(keep the same tag for the CLI). You'll also need `GOG_KEYRING_PASSWORD` in `.env`
-and the (gitignored) `gogcli/` credentials. Otherwise, drop the skill for a truly
-minimal setup.
+Et remplacer `image:` par `build: .` dans `docker-compose.yml`.
 
-**Obsidian vault (`workspace/drobsidian/`)** is its own git repo. This repo ignores
-it to avoid nested-repo mess. Keep versioning it separately (its own remote), or
-add it as a git submodule if you want one clone to pull both.
-
-**Updating OpenClaw.** Bump the image tag in `docker-compose.yml`, then:
-```bash
-docker compose pull
-docker compose up -d
-docker compose run --rm openclaw-cli doctor   # applies config migrations
-```
-
-**Memory / OOM.** `mem_limit: 4g` is set on the gateway. Raise it (and Docker
-Desktop → Settings → Resources) if needed. Running only the gateway already
-removes most of the pressure that caused the old exit-137 crashes.
+**mem_limit: 4g** sur le gateway. Augmenter si nécessaire (Docker Desktop →
+Settings → Resources).
