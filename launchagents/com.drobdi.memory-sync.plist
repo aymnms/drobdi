@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.drobdi.memory-sync</string>
+
+    <!-- Syncs drobdi-memory every hour via docker exec (no FDA required). -->
+    <key>ProgramArguments</key>
+    <array>
+        <string>/usr/local/bin/docker</string>
+        <string>exec</string>
+        <string>openclaw-gateway</string>
+        <string>bash</string>
+        <string>/home/node/.openclaw/scripts/git-sync.sh</string>
+    </array>
+
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <key>StandardOutPath</key>
+    <string>/tmp/drobdi-memory-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/drobdi-memory-sync.log</string>
+
+    <key>RunAtLoad</key>
+    <false/>
+</dict>
+</plist>

@@ -133,11 +133,20 @@ ssh-keyscan -t ed25519 github.com > data/openclaw/.ssh/known_hosts
 cat data/openclaw/.ssh/drobdi_memory_deploy.pub
 ```
 
-### Réinstaller le LaunchAgent
+### Réinstaller les LaunchAgents
+Les plists sont versionnées dans `launchagents/`. Un seul script installe tout :
 ```bash
-launchctl load ~/Library/LaunchAgents/com.drobdi.memory-sync.plist
-# Si absent, le recréer — voir scripts/sync-memory.sh pour le template
+bash scripts/install-launchagents.sh
 ```
+Il substitue le chemin du repo dans les plists, les copie dans `~/Library/LaunchAgents/` et les charge.
+
+| Agent | Déclencheur | Log |
+|-------|-------------|-----|
+| `com.drobdi.memory-sync` | toutes les heures | `/tmp/drobdi-memory-sync.log` |
+| `com.drobdi.daily-sync` | tous les jours à minuit | `/tmp/drobdi-daily-sync.log` |
+
+> **Note** : `com.drobdi.daily-sync` requiert Full Disk Access pour `/bin/bash`
+> (System Settings → Privacy & Security → Full Disk Access).
 
 ---
 
