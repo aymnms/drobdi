@@ -5,14 +5,13 @@
     <key>Label</key>
     <string>com.drobdi.memory-sync</string>
 
-    <!-- Syncs drobdi-memory + drobsidian every hour via docker exec (no FDA required). -->
+    <!-- Syncs drobdi-memory + drobsidian every hour via docker exec (no FDA required).  -->
+    <!-- On failure, sends a macOS notification via osascript.                           -->
     <key>ProgramArguments</key>
     <array>
-        <string>/usr/local/bin/docker</string>
-        <string>exec</string>
-        <string>openclaw-gateway</string>
-        <string>bash</string>
-        <string>/home/node/.openclaw/scripts/daily-sync-container.sh</string>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>/usr/local/bin/docker exec openclaw-gateway bash /home/node/.openclaw/scripts/daily-sync-container.sh || osascript -e 'display notification "Vérifie /tmp/drobdi-memory-sync.log" with title "drobdi sync failed"'</string>
     </array>
 
     <key>StartInterval</key>
