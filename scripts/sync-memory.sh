@@ -10,11 +10,16 @@
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
-MEMORY_REPO="$(dirname "$0")/../data/openclaw"
+MEMORY_REPO="$(cd "$(dirname "$0")/.." && pwd)/data/openclaw"
+KEY="$MEMORY_REPO/.ssh/drobdi_memory_deploy"
+KNOWN="$MEMORY_REPO/.ssh/known_hosts"
+
+# Override core.sshCommand (set for container paths) with host-local key path
+export GIT_SSH_COMMAND="ssh -i $KEY -o UserKnownHostsFile=$KNOWN -o StrictHostKeyChecking=yes -F /dev/null"
 
 msg="${1:-memory sync $(date '+%Y-%m-%d %H:%M')}"
 
-git -C "$MEMORY_REPO" add workspace/
+git -C "$MEMORY_REPO" add workspace/ README.md
 
 if git -C "$MEMORY_REPO" diff --cached --quiet; then
   echo "No memory changes to sync."
