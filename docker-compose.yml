@@ -1,0 +1,40 @@
+# ===========================================================================
+#  Minimal OpenClaw stack — one gateway + an opt-in CLI sidecar.
+#  Official multi-arch image: pulls the arm64 variant automatically on M1.
+#  No custom network, no extra services, no build step (see README for the
+#  optional Go build if you keep the `jx76-gog` skill).
+# ===========================================================================
+services:
+  openclaw-gateway:
+    # Pinned to the version you are migrating FROM, so memory/config formats
+    # match on first boot. Bump the tag + run doctor to update (see README).
+    image: ghcr.io/openclaw/openclaw:2026.4.15
+    container_name: openclaw-gateway
+    working_dir: /app
+    command:
+      ["node", "dist/index.js", "gateway", "--bind", "lan", "--port", "18789"]
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    ports:
+      # Bound to localhost only — the Control UI is not exposed on your LAN.
+      - "127.0.0.1:18789:18789"
+    environment:
+      TZ: ${TZ:-Europe/Paris}
+      # UI / gateway auth token — set this in .env (see .env.example).
+      OPENCLAW_GATEWAY_TOKEN: ${OPENCLAW_GATEWAY_TOKEN:?set OPENCLAW_GATEWAY_TOKEN in .env}
+      # Docker bridge networks don't forward mDNS reliably; disable it.
+      OPENCLAW_DISABLE_BONJOUR: "1"
+    volumes:
+      # The whole state dir (memory, sessions, config, local-only secrets).
+      - ./data/openclaw:/home/node/.openclaw
+    extra_hosts:
+      # Lets you later point at a host Ollama / LM Studio via host.docker.internal.
+      - "host.docker.internal:host-gateway"
+    cap_drop:
+      - NET_RAW
+      - NET_ADMIN
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 4g # your old box hit exit 137 (OOM); adjust as needed
+    # The official image ships a built-in HEALTHCHECK on /healthz.
