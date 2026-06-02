@@ -1,10 +1,7 @@
 # ============================================================
-#  OpenClaw repo — deny-by-default secret hygiene
-#  Nothing under data/openclaw/ is committed unless it is
-#  explicitly re-included below. This guarantees credentials
-#  never leak into git, even when you run `git add -A`.
-#  Sessions are NOT tracked: they contain raw conversation
-#  history which can embed secrets sent as messages.
+#  drobdi — infra repo (docker-compose, scripts, .env.example)
+#  data/openclaw/ has its OWN git repo (data/openclaw/.git)
+#  and is completely excluded here to avoid overlap.
 # ============================================================
 
 # --- Root-level secrets / env ---
@@ -13,45 +10,8 @@
 .env.*
 !.env.example
 
-# 1) Deny EVERYTHING inside the state directory
-/data/openclaw/**
-
-# 2) Re-include the curated workspace (the Markdown "brain":
-#    MEMORY.md, USER.md, SOUL.md, AGENTS.md, memory/*.md, skills/, ...)
-!/data/openclaw/workspace/
-!/data/openclaw/workspace/**
-
-# 3) Re-include the Active Memory database
-!/data/openclaw/memory/
-!/data/openclaw/memory/*.sqlite
-
-# 4) Sessions are intentionally NOT re-included.
-#    Session files (*.jsonl, *.jsonl.lock, *.checkpoint.*.jsonl)
-#    contain raw conversation logs and may embed secrets sent as messages.
-#    They must never be committed to git.
-
-# --- Hard secret + noise excludes (evaluated last, always win) ---
-# Provider OAuth / API-key material:
-/data/openclaw/**/auth-profiles.json
-/data/openclaw/credentials/
-# Custom gog skill keyring + creds:
-/data/openclaw/gogcli/
-/data/openclaw/**/keyring/
-/data/openclaw/**/*.key
-/data/openclaw/**/*.pem
-# Noise / transient / nested repos inside the workspace:
-/data/openclaw/workspace/.git/
-/data/openclaw/workspace/.trash/
-/data/openclaw/workspace/**/.trash/
-/data/openclaw/workspace/state/
-/data/openclaw/workspace/drobsidian/
-
-# --- Optional, opt-in -------------------------------------------------------
-# openclaw.json is ignored by default (rule #1) in case it holds inline tokens.
-# In 2026.x it usually only references credentials/, so it is safe to version.
-# Verify first:  grep -iE 'token|key|secret|password' data/openclaw/openclaw.json
-# If clean, uncomment the next line to keep your config portable:
-# !/data/openclaw/openclaw.json
+# data/openclaw/ has its own git repo — exclude entirely from this repo
+/data/openclaw/
 
 # Created by https://www.toptal.com/developers/gitignore/api/macos
 # Edit at https://www.toptal.com/developers/gitignore?templates=macos
