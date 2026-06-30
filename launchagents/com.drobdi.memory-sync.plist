@@ -12,7 +12,7 @@
     <array>
         <string>/bin/bash</string>
         <string>-c</string>
-        <string>/usr/local/bin/docker info &gt;&amp;/dev/null || exit 0; /usr/local/bin/docker exec openclaw-gateway bash /home/node/.openclaw/scripts/daily-sync-container.sh || osascript -e 'display notification "Vérifie /tmp/drobdi-memory-sync.log" with title "drobdi sync failed"'</string>
+        <string>echo "[$(date '+%Y-%m-%d %H:%M:%S')] sync started"; /usr/local/bin/docker info &gt;&amp;/dev/null || { echo "[$(date '+%Y-%m-%d %H:%M:%S')] Docker not running — skipping"; exit 0; }; /usr/local/bin/docker exec openclaw-gateway bash /home/node/.openclaw/scripts/daily-sync-container.sh; code=$?; echo "[$(date '+%Y-%m-%d %H:%M:%S')] sync finished (exit $code)"; [ $code -ne 0 ] &amp;&amp; osascript -e 'display notification "Vérifie /tmp/drobdi-memory-sync.log" with title "drobdi sync failed"'; exit $code</string>
     </array>
 
     <key>StartInterval</key>
